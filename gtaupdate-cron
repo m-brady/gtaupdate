@@ -1,0 +1,1 @@
+*/2 * * * *  python /pull.py >> /test_file 2>&1
