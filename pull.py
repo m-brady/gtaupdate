@@ -17,6 +17,9 @@ url = 'https://gtaupdate.com/gta/'
 time_format1 = '%I:%M %p'
 time_format2 = '%b-%d% I:%M %p'
 
+hour_start = 8
+hour_end = 23
+
 
 def event(user_id, timestamp, message):
     return {"event": {
@@ -83,6 +86,8 @@ if __name__ == '__main__':
         if division.next and division.next.name and division.next.text in divisions:
             time, note = children[0].next, children[2].next
             time_of_event = get_time(cur_time, time)
+            if time_of_event.hour < hour_start or time_of_event.hour > hour_end:
+                break
             delta = cur_time - time_of_event
             if delta.seconds > second_threshold:
                 break
