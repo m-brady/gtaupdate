@@ -17,7 +17,7 @@ url = 'https://gtaupdate.com/gta/'
 time_format1 = '%I:%M %p'
 time_format2 = '%b-%d% I:%M %p'
 
-hour_start = 8
+hour_start = 7
 hour_end = 23
 
 
@@ -48,7 +48,7 @@ def users():
 
         for u in data['users']:
             for d in u['divisions']:
-                division_users.setdefault(d, set()).add(u['id'])
+                division_users.setdefault(d, []).append((u['id'], u['streets']))
 
     return division_users
 
@@ -91,7 +91,12 @@ if __name__ == '__main__':
             delta = cur_time - time_of_event
             if delta.seconds > second_threshold:
                 break
-            alerts.extend((u, time, note) for u in divisions[division.next.text])
+
+            for u in divisions[division.next.text]:
+                if any(s.lower() in note.lower() for s in u[1]):
+                    alerts.append((u[0], time, note))
+
+            # alerts.extend((u, time, note) if any()for u in divisions[division.next.text])
 
     api = twitter_api()
     for alert in alerts:
