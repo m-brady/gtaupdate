@@ -98,9 +98,11 @@ if __name__ == '__main__':
             for u in interested_users:
                 user_id, roads = u[0], u[1]
                 prev = load(attr['OBJECTID'], user_id)
-                if not prev and (cur_time - at_scene).total_seconds() < threshold and any(
-                        s.lower() in attr['XSTREETS'].lower() for s in roads):
-                    alerts.append((user_id, attr['ATSCENE_TS'], attr['TYP_ENG'], attr['XSTREETS'], attr['OBJECTID']))
+                if not prev \
+                        and (cur_time - at_scene).total_seconds() < threshold \
+                        and any(s.lower() in attr['XSTREETS'].lower() for s in roads) \
+                        and 7 < at_scene.hour <= 23:
+                    alerts.append((user_id, at_scene, attr['TYP_ENG'], attr['XSTREETS'], attr['OBJECTID']))
 
     api = twitter_api()
     logging.info(f"Sending {len(alerts)} alerts")
