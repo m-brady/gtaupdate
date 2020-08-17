@@ -55,13 +55,13 @@ def users():
 
 
 def load(object_id, user_id):
-    db: TinyDB = TinyDB('history.json')
+    db: TinyDB = TinyDB(alert_db)
     q: Query = Query()
     return db.search(q.object_id == object_id and q.user_id == user_id)
 
 
 def insert(object_id, user_id):
-    db: TinyDB = TinyDB('history.json')
+    db: TinyDB = TinyDB(alert_db)
     db.insert({'object_id': object_id, 'user_id': user_id})
 
 
