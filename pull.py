@@ -2,26 +2,27 @@ import json
 import logging
 import sys
 from datetime import datetime
-from datetime import timedelta
 
 import pytz
 import requests
 from TwitterAPI import TwitterAPI
-from bs4 import BeautifulSoup
+from requests.models import Response
+from tinydb import TinyDB, Query
 
 twitter_key_file = 'twitter.json'
 user_file = 'users.json'
+alert_db = '/gtaupdate/db.json'
+
 default_timezone = 'America/Toronto'
-second_threshold = 120
-url = 'https://gtaupdate.com/gta/'
-time_format1 = '%I:%M %p'
-time_format2 = '%b-%d% I:%M %p'
 
-hour_start = 7
-hour_end = 23
+threshold = 600
+
+url = 'https://c4s.torontopolice.on.ca/arcgis/rest/services/CADPublic/C4S/MapServer/0/query'
+
+time_format = '%Y.%m.%d %H:%M:%S'
 
 
-def event(user_id, timestamp, message):
+def event(user_id, timestamp, typ_eng, nearby_roads):
     return {"event": {
         "type": "message_create",
         "message_create": {
@@ -29,7 +30,7 @@ def event(user_id, timestamp, message):
                 "recipient_id": user_id
             },
             "message_data": {
-                "text": f"{timestamp}: {message}",
+                "text": f"{timestamp}: {typ_eng} at {nearby_roads}",
             }
         }
     }}
@@ -53,52 +54,57 @@ def users():
     return division_users
 
 
-def get_time(now, time_string):
-    try:
-        t = datetime.strptime(time_string, time_format1).replace(tzinfo=zone)
-        return now.replace(hour=t.hour, minute=t.minute)
-    except ValueError:
-        try:
-            t = datetime.strptime(time_string, time_format2).replace(tzinfo=zone)
-            return (now - timedelta(days=1)).replace(hour=t.hour, minute=t.minute)
-        except ValueError:
-            pass
+def load(object_id, user_id):
+    db: TinyDB = TinyDB('history.json')
+    q: Query = Query()
+    return db.search(q.object_id == object_id and q.user_id == user_id)
+
+
+def insert(object_id, user_id):
+    db: TinyDB = TinyDB('history.json')
+    db.insert({'object_id': object_id, 'user_id': user_id})
+
+
+def query(divisions):
+    where_query = ' or '.join(map(lambda a: f'DGROUP=\'{a}\'', divisions))
+
+    response: Response = requests.get(url, params={'f': 'json', 'returnGeometry': False,
+                                                   'outFields': 'ATSCENE_TS,DGROUP,TYP_ENG,XSTREETS,OBJECTID',
+                                                   'where': where_query})
+    if response.ok:
+        return response.json()
+    else:
+        logging.error(response.text)
+    return None
 
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s %(message)s',
                         datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG, stream=sys.stdout)
 
-    logging.info("Starting!")
-
-    page = requests.get(url)
-    soup = BeautifulSoup(page.text, 'html.parser')
-    rows = soup.find_all('tr')
-
+    tz = pytz.timezone(default_timezone)
     alerts = []
-    zone = pytz.timezone(default_timezone)
-    cur_time = datetime.now(tz=zone)
+    logging.info("Starting!")
+    users = users()
+    features = query(users.keys())['features']
+    cur_time = datetime.now(tz=tz)
+    for feature in features:
+        attr = feature['attributes']
+        dgroup = attr['DGROUP']
 
-    divisions = users()
-    for row in rows:
-        children = list(row.children)
-        division = children[1]
-        if division.next and division.next.name and division.next.text in divisions:
-            time, note = children[0].next, children[2].next
-            time_of_event = get_time(cur_time, time)
-            if time_of_event.hour < hour_start or time_of_event.hour > hour_end:
-                break
-            delta = cur_time - time_of_event
-            if delta.seconds > second_threshold:
-                break
-
-            for u in divisions[division.next.text]:
-                if any(s.lower() in note.lower() for s in u[1]):
-                    alerts.append((u[0], time, note))
-
-            # alerts.extend((u, time, note) if any()for u in divisions[division.next.text])
+        interested_users = users[dgroup]
+        if interested_users:
+            at_scene = datetime.strptime(attr['ATSCENE_TS'], time_format).astimezone(tz=tz)
+            for u in interested_users:
+                user_id, roads = u[0], u[1]
+                prev = load(attr['OBJECTID'], user_id)
+                if not prev and (cur_time - at_scene).total_seconds() < threshold and any(
+                        s.lower() in attr['XSTREETS'].lower() for s in roads):
+                    alerts.append((user_id, attr['ATSCENE_TS'], attr['TYP_ENG'], attr['XSTREETS'], attr['OBJECTID']))
 
     api = twitter_api()
+    logging.info(f"Sending {len(alerts)} alerts")
     for alert in alerts:
         logging.info("Sending %r", alert)
-        r = api.request('direct_messages/events/new', json.dumps(event(*alert)))
+        r = api.request('direct_messages/events/new', json.dumps(event(*alert[:-1])))
+        insert(alert[4], alert[0])
